@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Speedrun — Summary</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         max-width: 860px; margin: 2rem auto; padding: 0 1.1rem; line-height: 1.55;
+         color: #1a1a1a; background: #fff; }
+  @media (prefers-color-scheme: dark) { body { color: #e6e6e6; background: #161616; } }
+  h1 { font-size: 1.6rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; border-bottom: 1px solid #8883; padding-bottom: .25rem; }
+  .sub { color: #8a8a8a; margin-top: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .93rem; }
+  th, td { border: 1px solid #8884; padding: .4rem .55rem; text-align: left; }
+  th { background: #8881; }
+  code { background: #8882; padding: .1rem .3rem; border-radius: 4px; font-size: .88em; }
+  .best { font-weight: 700; }
+  .win { color: #1a8a3a; } .lose { color: #c0392b; }
+  .big { font-size: 2rem; font-weight: 700; }
+  .box { border: 1px solid #8884; border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0; }
+  ul { padding-left: 1.2rem; }
+</style>
+</head>
+<body>
+
+<h1>2,000-Step LLM Speedrun — Summary</h1>
+<p class="sub">From-scratch GPT, CPU only, ≤2000 steps, ≤2,000,000 params. Metric: bits-per-byte (lower is better).</p>
+
+<div class="box">
+  <div>Baseline bpb <b>2.3718</b> &rarr; final bpb <span class="big win">1.9996</span></div>
+  <div>−0.372 bpb (−15.7%) &nbsp;·&nbsp; 1,585,600 params &nbsp;·&nbsp; 2000 steps</div>
+</div>
+
+<h2>Results (one change at a time)</h2>
+<table>
+<tr><th>Run</th><th>Change vs previous</th><th>dev bpb</th><th>params</th></tr>
+<tr><td>R0</td><td>starter baseline</td><td>2.3718</td><td>1,339,840</td></tr>
+<tr><td>R1</td><td>+ warmup→cosine LR, peak 1.5e-3</td><td class="win">2.1905</td><td>1,339,840</td></tr>
+<tr><td class="best">R2 ★</td><td>+ BPE tokenizer (vocab 1024)</td><td class="best win">1.9996</td><td>1,585,600</td></tr>
+<tr><td>R3</td><td>+ wd 0.1, tie, init 0.02, resid-scale, clip</td><td class="lose">2.1736</td><td>1,421,760</td></tr>
+<tr><td>R4</td><td>R3 without weight decay</td><td class="lose">2.2048</td><td>1,421,760</td></tr>
+<tr><td>R5</td><td>R2 + LR 2.5e-3 (abandoned, no gain)</td><td>—</td><td>—</td></tr>
+</table>
+<p>★ = final checkpoint (<code>ckpt.pt</code>).</p>
+
+<h2>Final architecture &amp; hyperparameters</h2>
+<table>
+<tr><th>Component</th><th>Value</th></tr>
+<tr><td>Type</td><td>Decoder-only GPT (pre-LN, causal self-attention, GELU MLP)</td></tr>
+<tr><td>Layers / heads / width</td><td>4 / 4 / 160</td></tr>
+<tr><td>Block size</td><td>128 tokens (≈295 bytes at ~2.3 bytes/tok)</td></tr>
+<tr><td>Tokenizer</td><td>byte-level BPE, vocab 1024, lossless (256 byte base + 768 merges)</td></tr>
+<tr><td>Optimizer</td><td>AdamW, β (0.9, 0.999), wd 0</td></tr>
+<tr><td>LR schedule</td><td>linear warmup 100 → cosine decay, peak 1.5e-3, min 10%</td></tr>
+<tr><td>Batch / steps</td><td>8 / 2000</td></tr>
+<tr><td>Params</td><td>1,585,600 (&lt; 2,000,000 cap)</td></tr>
+</table>
+
+<h2>Why this is the best config we found</h2>
+<ul>
+<li><b>The bottleneck was undertraining, not capacity.</b> The baseline's loss was still dropping at step 2000. A warmup→cosine schedule at a higher peak LR let it actually converge within the step cap — a free −0.18 bpb.</li>
+<li><b>The tokenizer multiplies information per step.</b> At ~2.3 bytes/token the BPE packs ~2.3× more context into the same 128-token window and exposes ~2.3× more effective bytes per step — decisive when steps are capped, and biggest on the Hindi (Devanagari cost 3 tokens/char under raw bytes). Another −0.19 bpb.</li>
+<li><b>Textbook GPT-2 tricks backfired.</b> Weight tying, init_std 0.02, residual scaling and weight decay all raised bpb (R3/R4). In a 1.5M-param, 2000-step regime they shrink the early signal and slow optimization instead of regularizing an overfit that isn't happening. Knowing <i>why</i> they lost is why we reverted them.</li>
+<li><b>The tokenizer stays lossless</b> (all 256 byte values are base tokens with a byte fallback), so per-byte scoring remains valid and the model never fails on unseen UTF-8.</li>
+</ul>
+
+<h2>Machine-done vs human-done</h2>
+<p>The coding agent (Claude) wrote the BPE tokenizer, the tunable trainer (schedule, AdamW,
+clipping, config plumbing), executed and scored every run, and drafted the RUNLOG / NOTES / this
+page. The human set the strategy and priorities (attack schedule and tokenizer first, treat
+data-per-step as the real constraint), made the calls to bundle then isolate the init/regularization
+experiments, decided to stop the higher-LR run early, chose the final checkpoint, and reviewed every
+conclusion for correctness. Roughly: <b>implementation and execution ≈ machine; direction, judgement,
+and stopping decisions ≈ human.</b></p>
+
+<p class="sub">Reproduce: <code>python tokenizer.py --data ../data/train_corpus.txt --vocab 1024</code> then
+<code>python train.py --data ../data/train_corpus.txt --steps 2000 --tokenizer bpe --lr 1.5e-3 --schedule cosine --warmup 100 --out ckpt.pt</code>.
+Score: <code>python evaluate.py --checkpoint ckpt.pt --text_file ../data/dev_eval.txt</code>.</p>
+
+</body>
+</html>

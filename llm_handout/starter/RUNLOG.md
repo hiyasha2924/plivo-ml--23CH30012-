@@ -10,7 +10,9 @@ All runs: CPU, seed 1337, 2000 steps, params < 2,000,000.
 | R2 | + BPE tokenizer (vocab 1024) | **1.9996** | 1,585,600 | ~2.3 bytes/token; -0.191 from tokenizer |
 | R3 | + wd 0.1, clip, tie, init 0.02, resid-scale, β2 0.95 | 2.1736 | 1,421,760 | **lost** (+0.174) |
 | R4 | R3 minus wd (tie + init 0.02 + resid-scale, wd 0) | 2.2048 | 1,421,760 | **lost more** → culprit is tie/init/resid, not wd |
-| R5 | R2 + higher peak LR 2.5e-3, warmup 150 | _running_ | | attack undertraining directly |
+| R5 | R2 + higher peak LR 2.5e-3, warmup 150 | abandoned | | train loss tracked ≥ R2; stopped early, no gain |
+
+**Final checkpoint = R2** (`ckpt.pt`): dev bpb **1.9996**, 1,585,600 params, 2000 steps.
 
 ---
 
@@ -47,4 +49,5 @@ All runs: CPU, seed 1337, 2000 steps, params < 2,000,000.
 ## R5 — higher peak LR
 - **Hypothesis:** R2 is still undertrained; a higher peak LR (with clip for safety) converges further within 2000 steps.
 - **Changed (vs R2):** `--lr 2.5e-3 --warmup 150 --clip 1.0`.
-- **Result:** _pending_.
+- **Result:** Abandoned. Through ~1100 steps its running train loss was equal-to-slightly-worse than R2 (higher LR added noise without faster convergence), so it was stopped to save the time budget rather than finished.
+- **Conclusion:** 1.5e-3 is already near the useful peak for this model/batch; going higher does not help. **R2 is the final configuration.**
