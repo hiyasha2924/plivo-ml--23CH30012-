@@ -1,14 +1,6 @@
-"""A small GPT in plain PyTorch.
-
-Modified from the starter. All improvements are OPT-IN via Config fields whose
-DEFAULTS reproduce the original baseline exactly, so:
-  * an old baseline checkpoint (whose saved config lacks the new fields) still
-    rebuilds and scores correctly, and
-  * an improved checkpoint saves its switches into the config and evaluate.py
-    reconstructs the same model faithfully.
-
-Nothing here breaks evaluate.py's interface.
-"""
+"""A small GPT in plain PyTorch. Config fields default to the baseline; the
+extra knobs (weight tying, init std, residual scaling) are saved into the
+checkpoint so evaluate.py rebuilds the exact same model."""
 import math
 
 import torch
@@ -23,10 +15,8 @@ class Config:
     n_head = 4
     n_embd = 160
     dropout = 0.0
-    tie_weights = False        # baseline default (opt-in improvement: True)
-
-    # --- opt-in improvements; defaults == baseline behaviour ---
-    init_std = 0.05            # baseline flat init std (improved: 0.02)
+    tie_weights = False
+    init_std = 0.05
     residual_scale = False     # scale residual-proj init by 1/sqrt(2*n_layer)
 
 
