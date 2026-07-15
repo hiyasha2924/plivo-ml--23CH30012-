@@ -57,7 +57,10 @@ class BPETokenizer:
     def encode(self, text):
         out = []
         for w in _SPLIT.findall(text):
-            out.extend(self._encode_chunk(w.encode("utf-8")))
+            b = w.encode("utf-8")
+            # cap the merge window so a very long no-space run stays fast
+            for i in range(0, len(b), 512):
+                out.extend(self._encode_chunk(b[i:i + 512]))
         return out
 
     def decode(self, ids):
